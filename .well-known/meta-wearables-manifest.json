@@ -1,0 +1,1 @@
+{"version":1,"name":"Minesweeper","description":"Clear the minefield without detonating.","appearance":{"theme_color":"#EF4444","icon":{"src":"../icon-mono.png","type":"monochrome"},"icon_background":{"colors":["#EF4444","#B91C1C","#1E1B4B","#04020F"],"stops":[0.0,0.33,0.66,1.0],"inner_glow_color":"#FECACA"}}}
