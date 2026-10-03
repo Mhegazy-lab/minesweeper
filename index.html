@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minesweeper</title>
+<link rel="icon" href="favicon.ico">
+<style>
+:root{--accent:#EF4444}
+*{box-sizing:border-box}
+html,body{height:100%;overflow:hidden;margin:0}
+body{background:#04020F;color:#F4F1FF;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:10px;user-select:none;-webkit-user-select:none}
+h1{margin:0;font-size:26px;letter-spacing:3px;color:var(--accent);text-shadow:0 0 18px var(--accent)}
+.btn{background:transparent;border:2px solid var(--accent);color:var(--accent);border-radius:12px;font-size:20px;font-weight:700;padding:12px 30px;cursor:pointer;letter-spacing:1px;font-family:inherit}
+.btn:active{background:var(--accent);color:#04020F}
+[data-focusable]:focus{outline:none}
+[data-focusable]:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+#topbar{display:flex;gap:14px;align-items:center}
+#flags{font-size:20px;font-weight:700}
+#flags b{color:var(--accent)}
+#modeBtn{border-width:3px;min-width:170px}
+#status{font-size:18px;font-weight:700;min-height:26px;color:var(--accent);text-align:center}
+#board{display:grid;grid-template-columns:repeat(9,1fr);gap:4px;background:#0d0a1f;border:2px solid var(--accent);border-radius:12px;box-shadow:0 0 24px rgba(239,68,68,.25);padding:10px;width:min(92vw,54dvh);aspect-ratio:1}
+.mcell{background:#1c1636;border:none;border-radius:6px;font-family:inherit;font-size:20px;font-weight:800;color:#fff;cursor:pointer;padding:0;aspect-ratio:1;min-width:0}
+.mcell.open{background:#0a0f22;color:#9db4ff}
+.mcell.flagged{color:var(--accent)}
+.mcell.boom{background:var(--accent);color:#fff}
+.mcell.wrong{background:#5b1a1a}
+#controls{display:flex;gap:12px;min-height:56px}
+.hint{font-size:14px;opacity:.55;text-align:center}
+.n1{color:#60A5FA}.n2{color:#4ADE80}.n3{color:#EF4444}.n4{color:#A78BFA}.n5{color:#FBBF24}.n6{color:#22D3EE}.n7{color:#F472B6}.n8{color:#94A3B8}
+</style>
+</head>
+<body>
+<h1>MINESWEEPER</h1>
+<div id="topbar">
+  <button class="btn" id="modeBtn" data-focusable>MODE: REVEAL</button>
+  <div id="flags">&#128681; <b id="flagCount">0</b>/10</div>
+</div>
+<div id="status"></div>
+<div id="board"></div>
+<div id="controls"><button class="btn" id="newBtn" data-focusable>NEW GAME</button></div>
+<div class="hint">Arrows move cursor &bull; Enter on MODE toggles &bull; Enter on cell reveals/flags</div>
+<script>
+(function(){
+"use strict";
+/* ================= pure logic ================= */
+var MS_SIZE=9, MS_CELLS=81, MS_MINES=10;
+function msNew(){
+  var i;
+  return {minesPlaced:false,mineCount:0,mine:[],num:[],open:[],flag:[],
+    over:false,won:false,mode:"reveal",opened:0,flags:0,
+    init:function(){ for(i=0;i<MS_CELLS;i++){this.mine.push(false);this.num.push(0);this.open.push(false);this.flag.push(false);} return this; }}.init();
+}
+function msNeighbors(i){
+  var r=(i/MS_SIZE)|0,c=i%MS_SIZE,out=[],dr,dc,nr,nc;
+  for(dr=-1;dr<=1;dr++)for(dc=-1;dc<=1;dc++){
+    if(!dr&&!dc) continue;
+    nr=r+dr; nc=c+dc;
+    if(nr>=0&&nr<MS_SIZE&&nc>=0&&nc<MS_SIZE) out.push(nr*MS_SIZE+nc);
+  }
+  return out;
+}
+function msPlace(g,safe,rand){
+  rand=rand||Math.random;
+  var pool=[],i;
+  for(i=0;i<MS_CELLS;i++) if(i!==safe) pool.push(i);
+  for(i=0;i<MS_MINES;i++){
+    var p=(rand()*pool.length)|0;
+    g.mine[pool[p]]=true;
+    pool.splice(p,1);
+  }
+  for(i=0;i<MS_CELLS;i++){
+    if(g.mine[i]){ g.num[i]=-1; continue; }
+    var n=0,ns=msNeighbors(i);
+    for(var k=0;k<ns.length;k++) if(g.mine[ns[k]]) n++;
+    g.num[i]=n;
+  }
+  g.minesPlaced=true; g.mineCount=MS_MINES;
+}
+function msSetMines(g,idxs){ /* test helper: explicit mine layout */
+  var i;
+  for(i=0;i<MS_CELLS;i++){ g.mine[i]=false; g.num[i]=0; }
+  for(i=0;i<idxs.length;i++) g.mine[idxs[i]]=true;
+  for(i=0;i<MS_CELLS;i++){
+    if(g.mine[i]){ g.num[i]=-1; continue; }
+    var n=0,ns=msNeighbors(i);
+    for(var k=0;k<ns.length;k++) if(g.mine[ns[k]]) n++;
+    g.num[i]=n;
+  }
+  g.minesPlaced=true; g.mineCount=idxs.length;
+}
+function msReveal(g,i,rand){
+  if(g.over||g.flag[i]||g.open[i]) return "none";
+  if(!g.minesPlaced) msPlace(g,i,rand);
+  if(g.mine[i]){ g.over=true; return "boom"; }
+  var stack=[i];
+  while(stack.length){
+    var c=stack.pop();
+    if(g.open[c]||g.flag[c]) continue;
+    g.open[c]=true; g.opened++;
+    if(g.num[c]===0){
+      var ns=msNeighbors(c);
+      for(var k=0;k<ns.length;k++) if(!g.open[ns[k]]&&!g.flag[ns[k]]) stack.push(ns[k]);
+    }
+  }
+  if(g.opened===MS_CELLS-g.mineCount){ g.won=true; g.over=true; return "win"; }
+  return "ok";
+}
+function msFlag(g,i){
+  if(g.over||g.open[i]) return;
+  g.flag[i]=!g.flag[i];
+  g.flags+=g.flag[i]?1:-1;
+}
+function loadJSON(store,key,def){ try{ var v=store.getItem(key); return v?JSON.parse(v):def; }catch(e){ return def; } }
+function saveJSON(store,key,val){ try{ store.setItem(key,JSON.stringify(val)); }catch(e){} }
+if(typeof module!=="undefined"&&module.exports){
+  module.exports={msNew:msNew,msNeighbors:msNeighbors,msPlace:msPlace,msSetMines:msSetMines,msReveal:msReveal,msFlag:msFlag,MS_SIZE:MS_SIZE,MS_CELLS:MS_CELLS,MS_MINES:MS_MINES,loadJSON:loadJSON,saveJSON:saveJSON};
+  return;
+}
+/* ================= DOM ================= */
+var AC=null;
+function beep(f,d,type){
+  try{
+    if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)();
+    var o=AC.createOscillator(),gn=AC.createGain();
+    o.type=type||"square"; o.frequency.value=f; gn.gain.value=0.05;
+    o.connect(gn); gn.connect(AC.destination); o.start();
+    var t=AC.currentTime+(d||0.07);
+    gn.gain.exponentialRampToValueAtTime(0.0001,t); o.stop(t+0.02);
+  }catch(e){}
+}
+var KEY="minesweeper-v1";
+var boardEl=document.getElementById("board"), statusEl=document.getElementById("status"),
+    flagEl=document.getElementById("flagCount"), modeBtn=document.getElementById("modeBtn"),
+    newBtn=document.getElementById("newBtn");
+var meta=loadJSON(localStorage,KEY,{wins:0,losses:0});
+var g=msNew(), cellBtns=[], cursor=0;
+for(var i=0;i<MS_CELLS;i++){
+  (function(idx){
+    var b=document.createElement("button");
+    b.className="mcell"; b.setAttribute("data-focusable",""); b.setAttribute("aria-label","cell");
+    b.addEventListener("click",function(){ activate(idx); });
+    b.addEventListener("focus",function(){ cursor=idx; });
+    boardEl.appendChild(b); cellBtns.push(b);
+  })(i);
+}
+function render(){
+  for(var i=0;i<MS_CELLS;i++){
+    var b=cellBtns[i];
+    b.className="mcell";
+    b.textContent="";
+    if(g.open[i]){
+      b.classList.add("open");
+      if(g.num[i]>0){ b.textContent=g.num[i]; b.classList.add("n"+g.num[i]); }
+    }else if(g.flag[i]){
+      b.classList.add("flagged"); b.textContent="\u2691";
+    }
+    if(g.over){
+      if(g.mine[i]&&!g.flag[i]){ b.classList.add("boom"); b.textContent="\u2739"; }
+      if(g.flag[i]&&!g.mine[i]){ b.classList.add("wrong"); b.textContent="\u2715"; }
+    }
+  }
+  flagEl.textContent=g.flags;
+  modeBtn.textContent="MODE: "+g.mode.toUpperCase();
+}
+function newGame(){
+  g=msNew(); statusEl.textContent="";
+  render(); cursor=40; cellBtns[40].focus();
+}
+function toggleMode(){
+  g.mode=g.mode==="reveal"?"flag":"reveal";
+  render(); beep(520,0.06); modeBtn.focus();
+}
+function activate(idx){
+  if(g.over) return;
+  if(g.mode==="flag"){
+    msFlag(g,idx); beep(660,0.05); render(); cellBtns[idx].focus(); return;
+  }
+  var r=msReveal(g,idx);
+  if(r==="boom"){
+    beep(120,0.4,"sawtooth");
+    statusEl.textContent="BOOM! You hit a mine.";
+    meta.losses++; saveJSON(localStorage,KEY,meta);
+  }else if(r==="win"){
+    beep(880,0.15,"sine"); setTimeout(function(){beep(1174,0.2,"sine");},140);
+    statusEl.textContent="YOU WIN! Field cleared.";
+    meta.wins++; saveJSON(localStorage,KEY,meta);
+  }else if(r==="ok"){ beep(440,0.05); }
+  render();
+  if(!g.over) cellBtns[idx].focus();
+}
+modeBtn.addEventListener("click",toggleMode);
+newBtn.addEventListener("click",newGame);
+document.addEventListener("keydown",function(e){
+  var k=e.key, ae=document.activeElement, isBtn=ae&&ae.tagName==="BUTTON";
+  if(k==="ArrowUp"||k==="ArrowDown"||k==="ArrowLeft"||k==="ArrowRight"||k===" ") e.preventDefault();
+  var modeFocused=(ae===modeBtn);
+  if(k==="ArrowLeft"||k==="ArrowRight"||k==="ArrowUp"||k==="ArrowDown"){
+    var d=k==="ArrowLeft"?-1:k==="ArrowRight"?1:k==="ArrowUp"?-9:9;
+    if(modeFocused){
+      if(k==="ArrowDown"){ cursor=4; cellBtns[cursor].focus(); }
+      return;
+    }
+    var r=(cursor/MS_SIZE)|0, c=cursor%MS_SIZE;
+    if(k==="ArrowLeft"){ if(c>0) cursor--; }
+    else if(k==="ArrowRight"){ if(c<8) cursor++; }
+    else if(k==="ArrowUp"){ if(r>0) cursor+=d; else { modeBtn.focus(); return; } }
+    else if(k==="ArrowDown"){ if(r<8) cursor+=d; }
+    cellBtns[cursor].focus();
+    return;
+  }
+  if((k==="Enter"||k===" ")&&isBtn){ e.preventDefault(); ae.click(); }
+});
+newGame();
+})();
+</script>
+</body>
+</html>
